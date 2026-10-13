@@ -1,0 +1,12 @@
+Data/
+.env*
+!.env.example
+native/host.cmd
+native/de.bewerbungskatapult.json
+native/.keysetup/
+__pycache__/
+tests/output/
+*.log
+*.bak
+*.pem
+*.key

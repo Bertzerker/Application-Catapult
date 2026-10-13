@@ -1,0 +1,7 @@
+{
+  "_hinweis": "Stand 2026-10-14. Einträge in den vier Listen hinzufügen oder löschen, dann in Thunderbird Modelllisten neu laden. Der erste Eintrag ist die Vorgabe, wenn die bisherige Auswahl entfernt wurde. Verfügbarkeit und Websuche hängen vom Konto ab. Antigravity: lokale Abfrage agy models. API-Listen: Vorauswahl, keine vollständige Verfügbarkeitsgarantie.",
+  "codex": ["", "gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+  "antigravity": ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"],
+  "gemini": ["gemini-2.5-pro", "gemini-3.8-flash"],
+  "openai": ["gpt-5-mini", "gpt-6-astra"]
+}
