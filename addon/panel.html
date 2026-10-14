@@ -1,21 +1,23 @@
 <!doctype html><html lang="de"><meta charset="utf-8"><title>Bewerbungskatapult</title>
 <link rel="stylesheet" href="style.css"><main>
-<label>Sprache / Language<select id="language"><option value="de">Deutsch</option><option value="en">English</option></select></label>
+<div class="language-options"><button type="button" id="langDe"><img src="flags/GER.png" alt=""> Deutsch</button><button type="button" id="langEn"><img src="flags/EN.png" alt=""> English</button></div><label class="language-fallback">Sprache / Language<select id="language"><option value="de">Deutsch</option><option value="en">English</option></select></label>
 <p class="eyebrow">THUNDERBIRD + LIBREOFFICE</p><h1>Bewerbungskatapult</h1>
 <p>Aus deiner Firmenliste werden persönliche Bewerbungs-PDFs und E-Mail-Entwürfe.</p>
 <section><h2>1 · Dateien auswählen</h2>
 <label>Datenordner<input id="folder" placeholder="C:\…\Data"></label><button id="load">Ordner laden</button>
 <div class="grid"><label>Firmenliste<select id="list"></select></label><label>Bereits bearbeitet<select id="finished"></select></label>
 <label>Bewerbungsvorlage<select id="template"></select></label><label>Betreff und Mailtext<select id="mail"></select></label></div>
+<label for="mailText">Betreff und Anschreiben bearbeiten</label><p>Erste Zeile: Betreff. Danach eine Leerzeile und das Anschreiben. Speichern übernimmt den Text dauerhaft in die ausgewählte Maildatei.</p><textarea id="mailText" rows="8" spellcheck="true" disabled></textarea>
+<button id="saveMail" disabled>Betreff und Anschreiben speichern</button><p id="mailStatus" aria-live="polite"></p>
 <label>Absender<select id="identity" aria-describedby="identityHint"></select></label>
 <p id="identityHint" aria-live="polite">Absender werden aus deinen Thunderbird-Konten geladen.</p>
 <button id="reloadIdentities">Absender neu laden</button><button id="preview">Vorschau prüfen</button></section>
 <section><h2>2 · Vorschau</h2><p id="summary">Bitte zuerst die Dateien auswählen.</p>
-<div class="scroll"><table><thead><tr><th>Firma</th><th>Adresse</th><th>Empfänger</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
-<h3 id="subject"></h3><pre id="body"></pre>
+<div class="scroll preview-box" tabindex="0"><table><thead><tr><th>Firma</th><th>Adresse</th><th>Empfänger</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table>
+<h3 id="subject"></h3><pre id="body"></pre></div>
 <button id="start" disabled>Entwürfe mit PDF erstellen</button><button id="cancel" disabled>Nach aktueller Firma stoppen</button>
 <p>Es werden ausschließlich Entwürfe gespeichert. Bei einem unklaren Abbruch wird die betroffene Firma bis zur Prüfung gesperrt.</p></section>
-<section aria-live="polite"><h2>3 · Fortschritt</h2><p id="progress">Noch nicht gestartet.</p><pre id="log"></pre></section>
+<section aria-live="polite"><h2>3 · Fortschritt</h2><div class="scroll log-box" tabindex="0"><p id="progress">Noch nicht gestartet.</p><pre id="log"></pre></div></section>
 <section><h2>KI-Stellensuche</h2>
 <p>Die Suche übermittelt Ort, Umkreis und Beruf an die ausgewählten Anbieter. API- und Suchkosten können anfallen. Prüfe die Ergebnisse anhand der Quellen.</p>
 <h3>Zusatzprogramme · Kontoanmeldung</h3>
@@ -40,8 +42,8 @@
 <label>Suchart<select id="searchMode"><option value="vacancy">Aktuelle Stellenangebote</option><option value="speculative">Firmen für Initiativbewerbungen</option></select></label></div>
 <button id="searchJobs">Stellen suchen</button>
 <button id="dedupeList">Dubletten in ApplicationList.MD bereinigen</button><p id="searchStatus" aria-live="polite"></p>
-<div class="scroll"><table><thead><tr><th>Auswählen</th><th>Firma</th><th>Adresse</th><th>Empfänger</th></tr></thead><tbody id="searchRows"></tbody></table></div>
-<h3>Quellen</h3><div id="searchSources"></div><pre id="searchDetails"></pre>
+<label class="select-all"><input id="selectAll" type="checkbox" disabled> Alle verfügbaren Firmen auswählen</label><div class="scroll"><table><thead><tr><th>Auswählen</th><th>Firma</th><th>Adresse</th><th>Empfänger</th></tr></thead><tbody id="searchRows"></tbody></table></div>
+<h3>KI-Protokoll und Quellen</h3><div class="scroll log-box" tabindex="0"><div id="searchSources"></div><pre id="searchDetails"></pre></div>
 <iframe id="suggestions" title="Google Search suggestions" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
 <button id="appendSearch" disabled>Ausgewählte Firmen anhängen</button></section>
 <p id="error" role="alert"></p></main><script src="lang.js"></script><script src="panel.js"></script><script src="search.js"></script></html>

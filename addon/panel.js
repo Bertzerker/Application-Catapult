@@ -3,6 +3,21 @@ const $ = id => document.getElementById(id);
 const send = message => browser.runtime.sendMessage(message);
 const native = request => send({type: 'native', request});
 let job = null, running = false;
+let mailSource = '', mailLoad = 0;
+let originalMail = '', savingMail = false;
+function updateMailSave() {
+  $('saveMail').disabled = running || savingMail || mailSource !== JSON.stringify([$('folder').value, $('mail').value]);
+}
+async function loadMail() {
+  const request = ++mailLoad, folder = $('folder').value, mail = $('mail').value;
+  mailSource = ''; $('mailText').value = ''; $('mailText').disabled = true;
+  $('mailStatus').textContent = ''; updateMailSave();
+  const result = await native({action: 'readMail', folder, mail});
+  if (request !== mailLoad || folder !== $('folder').value || mail !== $('mail').value) return;
+  $('mailText').value = result.text; mailSource = JSON.stringify([folder, mail]);
+  originalMail = result.text; updateMailSave();
+  $('mailText').disabled = running;
+}
 const config = () => Object.fromEntries(['folder', 'list', 'finished', 'template', 'mail'].map(id => [id, $(id).value]));
 const guard = fn => async () => { $('error').textContent = ''; try {await fn();} catch(e) {$('error').textContent = Lang.log(e.message);} };
 function invalidate() {job = null; $('start').disabled = true;}
@@ -38,15 +53,34 @@ async function loadFiles(saved = {}) {
   const defaults = {list: 'ApplicationList.txt', finished: 'ApplicationFinished.txt', template: 'ApplicationLetter.odt', mail: 'ApplicationMail.txt'};
   for (const id of Object.keys(patterns)) {
     $(id).replaceChildren(...result.files.filter(f => patterns[id].test(f)).map(f => new Option(f, f)));
-    const choice = saved[id] || defaults[id];
+    const previous = saved[id];
+    const choice = result.files.includes(previous) ? previous : result.files.find(f =>
+      f.toLowerCase().replace(/^applications/, 'application') === defaults[id].replace(/\.txt$/, '.md').toLowerCase()) || defaults[id];
     if ([...$(id).options].some(o => o.value === choice)) $(id).value = choice;
   }
+  if (mailSource !== JSON.stringify([$('folder').value, $('mail').value])) await loadMail();
 }
-$('load').onclick = guard(() => loadFiles());
+$('load').onclick = guard(async () => {mailSource = ''; await loadFiles();});
 for (const id of ['folder', 'list', 'finished', 'template', 'mail']) $(id).addEventListener('change', invalidate);
+$('mail').addEventListener('change', guard(loadMail));
+$('mailText').addEventListener('input', () => {invalidate(); $('mailStatus').textContent = t('Ungespeicherte Änderungen.');});
+$('saveMail').onclick = guard(async () => {
+  const source = JSON.stringify([$('folder').value, $('mail').value]);
+  if (savingMail || running || mailSource !== source) return;
+  const mailText = $('mailText').value;
+  savingMail = true; updateMailSave(); $('mailStatus').textContent = '';
+  try {
+    await native({action: 'saveMail', folder: $('folder').value, mail: $('mail').value, mailText, originalText: originalMail});
+    if (mailSource === source) {
+      originalMail = mailText;
+      $('mailStatus').textContent = t($('mailText').value === mailText ? 'Betreff und Anschreiben gespeichert.' : 'Ungespeicherte Änderungen.');
+    }
+  } finally {savingMail = false; updateMailSave();}
+});
 $('preview').onclick = guard(async () => {
   const cfg = config();
-  job = await native({...cfg, action: 'preview'});
+  if (mailSource !== JSON.stringify([cfg.folder, cfg.mail])) await loadMail();
+  job = await native({...cfg, action: 'preview', mailText: $('mailText').value});
   await browser.storage.local.set({config: cfg});
   $('rows').replaceChildren(...job.rows.map(r => {
     const tr = document.createElement('tr');
@@ -69,6 +103,8 @@ $('cancel').onclick = guard(() => send({type: 'cancel'}));
 async function refresh() {
   const s = await send({type: 'status'}); running = s.running;
   for (const id of ['folder','load','list','finished','template','mail','identity','reloadIdentities','preview']) $(id).disabled = running;
+  $('mailText').disabled = running || mailSource !== JSON.stringify([$('folder').value, $('mail').value]);
+  updateMailSave();
   $('cancel').disabled = !running;
   updateStart();
   $('progress').textContent = `${s.completed} / ${s.total} ${t('Entwürfe gespeichert')}${s.running ? ' · ' + (s.current || t('Startet…')) : s.cancelled ? ' · ' + t('Gestoppt') : ''}`;

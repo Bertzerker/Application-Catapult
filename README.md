@@ -3,7 +3,7 @@
 Thunderbird-Erweiterung für Windows: Firmenlisten lesen, Bewerbungen mit LibreOffice
 personalisieren, als PDF exportieren und E-Mails als **Entwürfe** speichern.
 Deutsch/Englisch, Dublettenprüfung und optionale KI-Firmensuche über Codex,
-Antigravity, Gemini API oder OpenAI API. Version 1.4.0.
+Antigravity, Gemini API oder OpenAI API. Version 1.5.1.
 
 ## Einrichtung
 
@@ -56,3 +56,12 @@ API-Schlüssel, Passwörter, Anmeldesitzungen, Logs oder lokal erzeugten PDFs.
 Das XPI wird ausschließlich aus dem geprüften Ordner `addon` neu gebaut.
 Die Erweiterungs-ID dieser Kopie ist eigenständig, damit lokale Installationen
 nicht unbeabsichtigt überschrieben werden.
+
+## Neu in 1.5.1
+
+- Suchtreffer werden bei Anzeige und Import gegen bestehende Firmenlisten, Fertig-Listen und das Entwurfsjournal geprüft. Auch veraltete Suchergebnisse können diese Sperre nicht umgehen.
+- Betreff und Anschreiben direkt bearbeiten und dauerhaft in die ausgewählte Maildatei speichern. Die vorherige Fassung wird als .bak gesichert; zwischenzeitliche externe Änderungen werden erkannt.
+- Eigene Scrollbereiche für Vorschau, Entwurfsfortschritt und KI-Protokoll.
+- Alle vollständigen Treffer gemeinsam auswählen; Sprachwahl mit Flaggen.
+
+Nach dem Aktualisieren die Add-on-Seite schließen und neu öffnen.

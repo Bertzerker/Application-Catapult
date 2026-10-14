@@ -58,7 +58,7 @@ def read_rows(path):
         for line in content.splitlines():
             if not line.strip():
                 continue
-            cells = re.split(r'(?<!\\)\|', line.strip().strip('|'))
+            cells = re.split(r'(?<!\\)\|', line.strip().removeprefix('|').removesuffix('|'))
             cells = [clean(c.replace('\\|', '|')) for c in cells]
             if all(re.fullmatch(r'[:\-\s]+', c) for c in cells):
                 continue
@@ -116,6 +116,20 @@ def atomic(path, data):
     os.replace(temp, path)
 
 
+def exclusion_rows(folder, selection):
+    """Read selected lists and all conventional aliases, including older installations."""
+    names = {selection.get(k) for k in ('list', 'finished')} - {None, ''}
+    names.update(p.name for p in folder.iterdir() if
+        p.stem.lower() in ('applicationlist', 'applicationslist', 'applicationfinished', 'applicationsfinished')
+        and p.suffix.lower() in ('.md', '.txt', '.csv', '.ods', '.xlsx', '.xls'))
+    rows = [r for name in names for r in companies(inside(folder, name, ('.md', '.txt', '.csv', '.ods', '.xlsx', '.xls')))]
+    journal = folder / 'Bewerbungskatapult' / 'journal.json'
+    if journal.exists():
+        rows.extend({'name': v.get('name', k), 'address': '', 'emails': []}
+                    for k, v in json.loads(journal.read_text(encoding='utf-8')).items())
+    return rows
+
+
 def dispatch(req):
     action = req['action']
     if action == 'defaults':
@@ -144,6 +158,7 @@ def dispatch(req):
         if not isinstance(providers, list) or not providers or any(p not in handlers for p in providers):
             raise ValueError('Mindestens eine KI auswählen / Select at least one AI')
         folder = Path(req['folder']).resolve(strict=True)
+        finished_rows = exclusion_rows(folder, req)
         state_dir = folder / 'Bewerbungskatapult'
         state_dir.mkdir(exist_ok=True)
         token = uuid.uuid4().hex
@@ -165,10 +180,19 @@ def dispatch(req):
         ordered = [results[p] for p in handlers if p in results]
         raw_rows = [r for result in ordered for r in result['rows']]
         rows = dedupe.merge(raw_rows)
-        result = {'rows': rows, 'duplicates': len(raw_rows) - len(rows), 'errors': errors,
+        duplicates = len(raw_rows) - len(rows)
+        visible = [r for r in rows if not any(dedupe.same(r, done) for done in finished_rows)]
+        excluded = len(rows) - len(visible)
+        result = {'rows': visible, 'list': req.get('list'), 'finished': req.get('finished'),
+                  'duplicates': duplicates, 'excludedFinished': excluded, 'errors': errors,
                   'text': '\n\n'.join(p.upper() + '\n' + results[p]['text'] for p in handlers if p in results),
                   'sources': [source for result in ordered for source in result['sources']],
                   'suggestions': results.get('gemini', {}).get('suggestions', '')}
+        if excluded:
+            result['text'] = '| Firmenname | Adresse | E-Mail |\n| --- | --- | --- |\n' + ''.join(
+                '| ' + ' | '.join(v.replace('|', '\\|').replace('\n', ' ') for v in
+                (r['name'], r['address'], '; '.join(r['emails']))) + ' |\n' for r in visible)
+            result['suggestions'] = ''
         atomic(state_dir / ('search-' + token + '.json'), result)
         return {**result, 'token': token}
     if action == 'sound':
@@ -180,6 +204,8 @@ def dispatch(req):
         raise ValueError('Datenordner nicht gefunden.')
     if action == 'files':
         return {'files': sorted(p.name for p in folder.iterdir() if p.is_file())}
+    if action == 'readMail':
+        return {'text': textfile(inside(folder, req['mail'], ('.txt', '.md'))).replace('\r\n', '\n')}
     state_dir = folder / 'Bewerbungskatapult'
     state_dir.mkdir(exist_ok=True)
     lock = state_dir / '.lock'
@@ -202,9 +228,25 @@ def dispatch(req):
 
 def locked(req, folder, state_dir):
     action = req['action']
+    if action == 'saveMail':
+        path = inside(folder, req['mail'], ('.txt', '.md'))
+        content = req['mailText'].replace('\r\n', '\n')
+        lines = content.split('\n')
+        if len(lines) < 3 or not lines[0].strip() or lines[1].strip() or not '\n'.join(lines[2:]).strip():
+            raise ValueError('Maildatei: Betreff, Leerzeile, danach Anschreiben erforderlich.')
+        old = textfile(path).replace('\r\n', '\n')
+        if old != req['originalText'].replace('\r\n', '\n'):
+            raise ValueError('Die Maildatei wurde inzwischen geändert. Bitte den Ordner neu laden.')
+        if content != old:
+            path.with_name(path.name + '.bak').write_bytes(path.read_bytes())
+            temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+            temporary.write_text(content, encoding='utf-8')
+            os.replace(temporary, path)
+        return {'filename': path.name}
     if action in ('appendSearch', 'dedupeList'):
         import dedupe
         incoming = []
+        result = {}
         if action == 'appendSearch':
             token = req.get('token', '')
             if not re.fullmatch('[a-f0-9]{32}', token):
@@ -212,17 +254,30 @@ def locked(req, folder, state_dir):
             result = json.loads((state_dir / ('search-' + token + '.json')).read_text(encoding='utf-8'))
             selected = set(req.get('selected', []))
             incoming = [r for r in result['rows'] if r['key'] in selected and r['emails'] and r['address']]
-        destination = folder / 'ApplicationList.MD'
+        selection = {**result, **req}
+        target = selection.get('list') or next((p.name for p in folder.iterdir()
+            if p.name.lower() in ('applicationlist.md', 'applicationslist.md')), 'ApplicationList.MD')
+        destination = (folder / target).resolve()
+        if destination.parent != folder or destination.suffix.lower() != '.md':
+            raise ValueError('Bitte eine Markdown-Firmenliste auswählen.')
+        blocked = exclusion_rows(folder, selection)
+        incoming = dedupe.merge([r for r in incoming if not any(dedupe.same(r, old) for old in blocked)])
         existing = companies(destination) if destination.exists() else []
         old = textfile(destination) if destination.exists() else ''
         if old.strip() and not old.lstrip().startswith('|'):
             raise ValueError('Zieldatei ist keine Markdown-Tabelle / Target is not a Markdown table')
         baseline = dedupe.merge(existing)
+        if action == 'appendSearch' and not incoming:
+            return {'added': 0, 'removed': 0, 'filename': destination.name}
         if action == 'dedupeList' and len(baseline) == len(existing):
             return {'added': 0, 'removed': 0, 'filename': destination.name}
-        merged = dedupe.merge([*existing, *incoming])
+        merged = dedupe.merge(existing) if action == 'dedupeList' else [*existing, *incoming]
         content = '| Firmenname | Adresse | E-Mail |\n| --- | --- | --- |\n'
-        for row in merged:
+        write_rows = merged
+        if action == 'appendSearch' and old.strip():
+            content = old.rstrip('\r\n') + '\n'
+            write_rows = incoming
+        for row in write_rows:
             values = [row['name'], row['address'], ' / '.join(row['emails'])]
             content += '| ' + ' | '.join(v.replace('|', '\\|').replace('\n', ' ').replace('\r', ' ') for v in values) + ' |\n'
         if (existing or incoming) and content != old:
@@ -231,14 +286,15 @@ def locked(req, folder, state_dir):
             temporary = destination.with_name(destination.name + '.tmp')
             temporary.write_text(content, encoding='utf-8')
             os.replace(temporary, destination)
-        return {'added': max(0, len(merged)-len(baseline)), 'removed': len(existing)-len(baseline), 'filename': destination.name}
+        return {'added': len(incoming), 'removed': len(existing)-len(merged) if action == 'dedupeList' else 0, 'filename': destination.name}
     journal_path = state_dir / 'journal.json'
     journal = json.loads(journal_path.read_text(encoding='utf-8')) if journal_path.exists() else {}
     if action == 'preview':
         source = inside(folder, req['list'], ('.txt', '.md', '.csv', '.xls', '.xlsx', '.ods'))
         finished = inside(folder, req['finished'], ('.txt', '.md', '.csv', '.xls', '.xlsx', '.ods'))
         template = inside(folder, req['template'], ('.doc', '.docx', '.odt'))
-        mail = textfile(inside(folder, req['mail'], ('.txt', '.md'))).replace('\r\n', '\n')
+        mail = textfile(inside(folder, req['mail'], ('.txt', '.md')))
+        mail = req.get('mailText', mail).replace('\r\n', '\n')
         lines = mail.split('\n')
         if len(lines) < 3 or not lines[0].strip() or lines[1].strip() or not '\n'.join(lines[2:]).strip():
             raise ValueError('Maildatei: Betreff, Leerzeile, danach Anschreiben erforderlich.')

@@ -2,6 +2,13 @@
 const Lang = (() => {
   let language = 'de';
   const en = {
+    'Betreff und Anschreiben bearbeiten': 'Edit subject and email body',
+    'Betreff und Anschreiben speichern': 'Save subject and email body',
+    'Betreff und Anschreiben gespeichert.': 'Subject and email body saved.',
+    'Ungespeicherte Änderungen.': 'Unsaved changes.',
+    'Die Maildatei wurde inzwischen geändert. Bitte den Ordner neu laden.': 'The email file has changed. Please reload the folder.',
+    'Erste Zeile: Betreff. Danach eine Leerzeile und das Anschreiben. Speichern übernimmt den Text dauerhaft in die ausgewählte Maildatei.': 'First line: subject. Then a blank line and the email body. Save writes the text permanently to the selected email file.',
+    'bereits bearbeitete Firmen ausgeblendet.': 'previously processed companies hidden.',
     'Antigravity (Google-Konto)': 'Antigravity (Google account)', 'Antigravity (Konto)': 'Antigravity (account)',
     'Antigravity prüfen': 'Check Antigravity', 'Codex-Modell': 'Codex model', 'Antigravity-Modell': 'Antigravity model',
     'Modelllisten neu laden': 'Reload model lists', 'Modelllisten geladen.': 'Model lists loaded.',
@@ -45,6 +52,11 @@ const Lang = (() => {
     'Firmen bereit': 'companies ready', 'werden übersprungen': 'will be skipped', 'Entwürfe gespeichert': 'drafts saved',
     'Startet…': 'Starting…', 'Gestoppt': 'Stopped', 'Entwürfe fertig': 'Drafts ready', 'Vorgang beendet': 'Batch finished',
     'von': 'of', 'Entwürfen wurden gespeichert. Bitte vor dem Versenden prüfen.': 'drafts were saved. Please review before sending.',
+    'Betreff und Anschreiben bearbeiten': 'Edit subject and email body',
+    'Erste Zeile: Betreff. Danach eine Leerzeile und das Anschreiben. Änderungen gelten für diese Sitzung; die Quelldatei bleibt erhalten.': 'First line: subject. Then a blank line and the email body. Edits apply to this session; the source file is preserved.',
+    'Alle verfügbaren Firmen auswählen': 'Select all available companies',
+    'KI-Protokoll und Quellen': 'AI log and sources',
+    'vorhandene oder bearbeitete Firmen ausgeblendet.': 'existing or processed companies hidden.',
     'Schließen': 'Close', 'Bereits gespeichert': 'Already saved', 'Unklarer früherer Vorgang – Entwürfe prüfen': 'Uncertain earlier batch – check drafts',
     'Doppelte Firma': 'Duplicate company', 'Keine E-Mail-Adresse': 'No email address', 'Adresse fehlt': 'Address missing', 'Bereit': 'Ready',
     'Entwurf gespeichert.': 'Draft saved.', 'Entwurf gespeichert, Nachbearbeitung fehlgeschlagen. ': 'Draft saved, post-processing failed. ',
@@ -95,6 +107,12 @@ const Lang = (() => {
     const toggle = document.getElementById('language');
     if (toggle) {
       toggle.value = language;
+      for (const [id, value] of [['langDe', 'de'], ['langEn', 'en']]) {
+        const button = document.getElementById(id);
+        if (!button) continue;
+        button.setAttribute('aria-pressed', String(language === value));
+        button.onclick = async () => {if (toggle.disabled) return; await browser.storage.local.set({language: value}); location.reload();};
+      }
       toggle.onchange = async () => {await browser.storage.local.set({language: toggle.value}); location.reload();};
     }
   }

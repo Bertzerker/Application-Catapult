@@ -56,3 +56,18 @@ test('four connections can be selected separately and collapsed APIs remain sele
   assert.equal($('codexModel').value,'gpt-new');
   assert.equal($('antigravityModel').value,'gemini-3.8-flash-high');
 });
+
+test('select all skips incomplete companies and supports partial selection', () => {
+  const elements = new Map();
+  const $ = id => {if (!elements.has(id)) elements.set(id, {}); return elements.get(id);};
+  const inputs = [{value:'a',checked:false,disabled:false},{value:'b',checked:false,disabled:false},{value:'c',checked:false,disabled:true}];
+  const context = {$, guard:fn=>fn, uiReady:new Promise(()=>{}), Lang:{t:x=>x}, document:{querySelectorAll:selector=>selector.includes(':checked') ? inputs.filter(i=>i.checked) : inputs}};
+  vm.runInNewContext(fs.readFileSync('addon/search.js','utf8'), context);
+  $('selectAll').checked=true; $('selectAll').onchange();
+  assert.deepEqual(inputs.map(i=>i.checked),[true,true,false]);
+  assert.equal($('appendSearch').disabled,false);
+  inputs[0].checked=false; vm.runInNewContext('updateSelection()',context);
+  assert.equal($('selectAll').indeterminate,true);
+  $('selectAll').checked=false; $('selectAll').onchange();
+  assert.equal($('appendSearch').disabled,true);
+});
