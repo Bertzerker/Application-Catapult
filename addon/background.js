@@ -7,7 +7,7 @@ const host = async (request) => {
   return result;
 };
 async function runBatch(config, job, identityId) {
-  state = {running: true, log: [], completed: 0, total: job.rows.filter(r => r.status === 'Bereit').length};
+  state = {running: true, log: [], completed: 0, processedKeys: [], folder: config.folder, list: config.list, total: job.rows.filter(r => r.status === 'Bereit').length};
   cancelled = false;
   await browser.storage.local.set({lastRun: state});
   try {
@@ -34,6 +34,7 @@ async function runBatch(config, job, identityId) {
         saved = true;
         state.completed++;
         const commit = await host({...request, action: 'commit', drafts: result.messages?.map(m => m.id) || []});
+        state.processedKeys.push(row.key);
         state.log.push(row.name + ': Entwurf gespeichert.' + (commit.warning ? ' ' + commit.warning : ''));
         await browser.tabs.remove(tab.id);
       } catch (error) {

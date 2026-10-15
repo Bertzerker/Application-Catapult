@@ -42,11 +42,37 @@ def execute(request):
             else:
                 raise RuntimeError('Zeitüberschreitung beim Start von LibreOffice.')
             desktop = ctx.ServiceManager.createInstanceWithContext('com.sun.star.frame.Desktop', ctx)
-            doc = desktop.loadComponentFromURL(Path(request['source']).as_uri(), '_blank', 0,
+            source = 'private:factory/scalc' if request['kind'] == 'exportFinished' else Path(request['source']).as_uri()
+            doc = desktop.loadComponentFromURL(source, '_blank', 0,
                 (prop('Hidden', True), prop('ReadOnly', True), prop('MacroExecutionMode', 0),
                  prop('UpdateDocMode', 0)))
             if doc is None:
                 raise ValueError('Dokument konnte nicht geöffnet werden.')
+            if request['kind'] == 'exportFinished':
+                sheet = doc.Sheets.getByIndex(0)
+                sheet.Name = 'Bereits bearbeitet'
+                rows = [['Firmenname', 'Adresse', 'E-Mail', 'Hinweise']]
+                rows.extend([r['name'], r['address'], '; '.join(r['emails']), str(r.get('emailText', ''))]
+                            for r in request['rows'])
+                for y, row in enumerate(rows):
+                    for x, value in enumerate(row):
+                        # Explicit text prevents company data from becoming formulas.
+                        sheet.getCellByPosition(x, y).String = value
+                area = sheet.getCellRangeByPosition(0, 0, 3, len(rows)-1)
+                area.CharFontName = 'Calibri'
+                area.CharHeight = 11
+                area.IsTextWrapped = True
+                header = sheet.getCellRangeByPosition(0, 0, 3, 0)
+                header.CellBackColor = 0x185F69
+                header.CharColor = 0xFFFFFF
+                header.CharWeight = 150.0
+                for x, width in enumerate((6500, 8500, 9000, 8000)):
+                    sheet.Columns.getByIndex(x).Width = width
+                area.Rows.OptimalHeight = True
+                doc.CurrentController.freezeAtPosition(0, 1)
+                doc.storeToURL(Path(request['target']).as_uri(),
+                    (prop('FilterName', 'Calc MS Excel 2007 XML'), prop('Overwrite', False)))
+                return {'count': len(rows)-1}
             if request['kind'] == 'table':
                 sheet = doc.Sheets.getByIndex(0)
                 cursor = sheet.createCursor()

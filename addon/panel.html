@@ -5,7 +5,7 @@
 <p>Aus deiner Firmenliste werden persönliche Bewerbungs-PDFs und E-Mail-Entwürfe.</p>
 <section><h2>1 · Dateien auswählen</h2>
 <label>Datenordner<input id="folder" placeholder="C:\…\Data"></label><button id="load">Ordner laden</button>
-<div class="grid"><label>Firmenliste<select id="list"></select></label><label>Bereits bearbeitet<select id="finished"></select></label>
+<div class="grid"><label>Firmenliste<select id="list"></select></label><div><label>Bereits bearbeitet<select id="finished"></select></label><button id="exportFinished">Als Excel exportieren</button><p id="exportStatus" aria-live="polite"></p></div>
 <label>Bewerbungsvorlage<select id="template"></select></label><label>Betreff und Mailtext<select id="mail"></select></label></div>
 <label for="mailText">Betreff und Anschreiben bearbeiten</label><p>Erste Zeile: Betreff. Danach eine Leerzeile und das Anschreiben. Speichern übernimmt den Text dauerhaft in die ausgewählte Maildatei.</p><textarea id="mailText" rows="8" spellcheck="true" disabled></textarea>
 <button id="saveMail" disabled>Betreff und Anschreiben speichern</button><p id="mailStatus" aria-live="polite"></p>
@@ -41,7 +41,7 @@
 <label>Beruf / Stelle<input id="searchRole" maxlength="200"></label>
 <label>Suchart<select id="searchMode"><option value="vacancy">Aktuelle Stellenangebote</option><option value="speculative">Firmen für Initiativbewerbungen</option></select></label></div>
 <button id="searchJobs">Stellen suchen</button>
-<button id="dedupeList">Dubletten in ApplicationList.MD bereinigen</button><p id="searchStatus" aria-live="polite"></p>
+<button id="dedupeList">Dubletten in ApplicationList.json bereinigen</button><p id="searchStatus" aria-live="polite"></p>
 <label class="select-all"><input id="selectAll" type="checkbox" disabled> Alle verfügbaren Firmen auswählen</label><div class="scroll"><table><thead><tr><th>Auswählen</th><th>Firma</th><th>Adresse</th><th>Empfänger</th></tr></thead><tbody id="searchRows"></tbody></table></div>
 <h3>KI-Protokoll und Quellen</h3><div class="scroll log-box" tabindex="0"><div id="searchSources"></div><pre id="searchDetails"></pre></div>
 <iframe id="suggestions" title="Google Search suggestions" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>

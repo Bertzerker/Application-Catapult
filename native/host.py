@@ -74,7 +74,7 @@ def read_rows(path):
     return list(csv.reader(io.StringIO(content), dialect))
 
 
-def companies(path):
+def companies_from_table(path):
     rows = read_rows(path)
     if not rows:
         return []
@@ -103,6 +103,51 @@ def companies(path):
     return result
 
 
+def companies(path):
+    if path.suffix.lower() != '.json':
+        raise ValueError('Firmenlisten müssen JSON-Dateien sein. Bitte die JSON-Datei auswählen und die Vorschau neu laden.')
+    data = json.loads(textfile(path))
+    if not isinstance(data, list):
+        raise ValueError('Firmenliste: JSON-Array mit Firmen erforderlich.')
+    result = []
+    for number, row in enumerate(data, 1):
+        if (not isinstance(row, dict) or not isinstance(row.get('name'), str) or not row['name'].strip()
+                or not isinstance(row.get('address'), str) or not isinstance(row.get('emails'), list)
+                or any(not isinstance(email, str) or not EMAIL.fullmatch(email) for email in row['emails'])):
+            raise ValueError(f'Ungültige Firma im JSON-Eintrag {number}: name, address und emails erforderlich.')
+        address = row['address']
+        match = re.match(r'^(.*?)[,\n]\s*(\d{5}\s+.+)$', address, re.S) or re.match(r'^(.*?)[,\n]\s*(.+)$', address, re.S)
+        result.append({**row, 'key': key(row['name']),
+            'street': match.group(1).strip() if match else address,
+            'city': match.group(2).strip() if match else ''})
+    return result
+
+
+def save_companies(path, rows):
+    if path.suffix.lower() != '.json':
+        raise ValueError('Firmenlisten müssen JSON-Dateien sein.')
+    data = [{k: v for k, v in row.items() if k not in ('key', 'street', 'city', 'status')} for row in rows]
+    if path.exists():
+        path.with_name(path.name + '.bak').write_bytes(path.read_bytes())
+    atomic(path, data)
+
+
+def remove_finished(source, finished, journal):
+    import dedupe
+    if source == finished:
+        raise ValueError('Firmenliste und Fertig-Liste müssen verschiedene Dateien sein.')
+    rows, done = companies(source), companies(finished)
+    recovered = [r for r in rows if journal.get(r['key'], {}).get('status') == 'saved'
+                 and not any(dedupe.same(r, d) for d in done)]
+    if recovered:
+        done = dedupe.merge([*done, *recovered])
+        save_companies(finished, done)
+    remaining = [r for r in rows if not any(dedupe.same(r, d) for d in done)]
+    if len(remaining) != len(rows):
+        save_companies(source, remaining)
+    return remaining, len(rows) - len(remaining)
+
+
 def inside(folder, filename, extensions):
     path = (folder / filename).resolve()
     if path.parent != folder or path.suffix.lower() not in extensions or not path.is_file():
@@ -121,8 +166,8 @@ def exclusion_rows(folder, selection):
     names = {selection.get(k) for k in ('list', 'finished')} - {None, ''}
     names.update(p.name for p in folder.iterdir() if
         p.stem.lower() in ('applicationlist', 'applicationslist', 'applicationfinished', 'applicationsfinished')
-        and p.suffix.lower() in ('.md', '.txt', '.csv', '.ods', '.xlsx', '.xls'))
-    rows = [r for name in names for r in companies(inside(folder, name, ('.md', '.txt', '.csv', '.ods', '.xlsx', '.xls')))]
+        and p.suffix.lower() in ('.json',))
+    rows = [r for name in names for r in companies(inside(folder, name, ('.json',)))]
     journal = folder / 'Bewerbungskatapult' / 'journal.json'
     if journal.exists():
         rows.extend({'name': v.get('name', k), 'address': '', 'emails': []}
@@ -171,7 +216,7 @@ def dispatch(req):
                     result = dict(future.result())
                     table = state_dir / (token + '-' + provider + '.md')
                     table.write_text(result['table'], encoding='utf-8')
-                    result['rows'] = [{**r, 'providers': [provider]} for r in companies(table)]
+                    result['rows'] = [{**r, 'providers': [provider]} for r in companies_from_table(table)]
                     results[provider] = result
                 except Exception as exc:
                     errors.append(provider + ': ' + str(exc))
@@ -228,6 +273,21 @@ def dispatch(req):
 
 def locked(req, folder, state_dir):
     action = req['action']
+    if action == 'exportFinished':
+        from datetime import datetime
+        source = inside(folder, req['finished'], ('.json',))
+        rows = companies(source)
+        destination = folder / (source.stem + '-' + datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '-' + uuid.uuid4().hex[:8] + '.xlsx')
+        try:
+            office({'kind': 'exportFinished', 'rows': rows, 'target': str(destination)})
+            import zipfile
+            with zipfile.ZipFile(destination) as workbook:
+                if 'xl/workbook.xml' not in workbook.namelist():
+                    raise ValueError('Excel-Export fehlgeschlagen.')
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        return {'path': str(destination), 'count': len(rows)}
     if action == 'saveMail':
         path = inside(folder, req['mail'], ('.txt', '.md'))
         content = req['mailText'].replace('\r\n', '\n')
@@ -256,51 +316,41 @@ def locked(req, folder, state_dir):
             incoming = [r for r in result['rows'] if r['key'] in selected and r['emails'] and r['address']]
         selection = {**result, **req}
         target = selection.get('list') or next((p.name for p in folder.iterdir()
-            if p.name.lower() in ('applicationlist.md', 'applicationslist.md')), 'ApplicationList.MD')
+            if p.name.lower() in ('applicationlist.json', 'applicationslist.json')), 'ApplicationList.json')
         destination = (folder / target).resolve()
-        if destination.parent != folder or destination.suffix.lower() != '.md':
-            raise ValueError('Bitte eine Markdown-Firmenliste auswählen.')
+        if destination.parent != folder or destination.suffix.lower() != '.json':
+            raise ValueError('Bitte eine JSON-Firmenliste auswählen.')
         blocked = exclusion_rows(folder, selection)
         incoming = dedupe.merge([r for r in incoming if not any(dedupe.same(r, old) for old in blocked)])
         existing = companies(destination) if destination.exists() else []
-        old = textfile(destination) if destination.exists() else ''
-        if old.strip() and not old.lstrip().startswith('|'):
-            raise ValueError('Zieldatei ist keine Markdown-Tabelle / Target is not a Markdown table')
         baseline = dedupe.merge(existing)
         if action == 'appendSearch' and not incoming:
             return {'added': 0, 'removed': 0, 'filename': destination.name}
         if action == 'dedupeList' and len(baseline) == len(existing):
             return {'added': 0, 'removed': 0, 'filename': destination.name}
         merged = dedupe.merge(existing) if action == 'dedupeList' else [*existing, *incoming]
-        content = '| Firmenname | Adresse | E-Mail |\n| --- | --- | --- |\n'
-        write_rows = merged
-        if action == 'appendSearch' and old.strip():
-            content = old.rstrip('\r\n') + '\n'
-            write_rows = incoming
-        for row in write_rows:
-            values = [row['name'], row['address'], ' / '.join(row['emails'])]
-            content += '| ' + ' | '.join(v.replace('|', '\\|').replace('\n', ' ').replace('\r', ' ') for v in values) + ' |\n'
-        if (existing or incoming) and content != old:
-            if destination.exists():
-                destination.with_name(destination.name + '.bak').write_bytes(destination.read_bytes())
-            temporary = destination.with_name(destination.name + '.tmp')
-            temporary.write_text(content, encoding='utf-8')
-            os.replace(temporary, destination)
+        save_companies(destination, merged)
         return {'added': len(incoming), 'removed': len(existing)-len(merged) if action == 'dedupeList' else 0, 'filename': destination.name}
     journal_path = state_dir / 'journal.json'
     journal = json.loads(journal_path.read_text(encoding='utf-8')) if journal_path.exists() else {}
+    if action == 'cleanupFinished':
+        source = inside(folder, req['list'], ('.json',))
+        finished = inside(folder, req['finished'], ('.json',))
+        remaining, removed = remove_finished(source, finished, journal)
+        return {'removed': removed, 'remaining': len(remaining)}
     if action == 'preview':
-        source = inside(folder, req['list'], ('.txt', '.md', '.csv', '.xls', '.xlsx', '.ods'))
-        finished = inside(folder, req['finished'], ('.txt', '.md', '.csv', '.xls', '.xlsx', '.ods'))
+        source = inside(folder, req['list'], ('.json',))
+        finished = inside(folder, req['finished'], ('.json',))
         template = inside(folder, req['template'], ('.doc', '.docx', '.odt'))
         mail = textfile(inside(folder, req['mail'], ('.txt', '.md')))
         mail = req.get('mailText', mail).replace('\r\n', '\n')
         lines = mail.split('\n')
         if len(lines) < 3 or not lines[0].strip() or lines[1].strip() or not '\n'.join(lines[2:]).strip():
             raise ValueError('Maildatei: Betreff, Leerzeile, danach Anschreiben erforderlich.')
+        remaining, removed = remove_finished(source, finished, journal)
         done = {c['key'] for c in companies(finished)}
         seen, rows = set(), []
-        for company in companies(source):
+        for company in remaining:
             k = company['key']
             status = ('Bereits bearbeitet' if k in done else
                       'Bereits gespeichert' if journal.get(k, {}).get('status') == 'saved' else
@@ -311,7 +361,7 @@ def locked(req, folder, state_dir):
             seen.add(k)
             rows.append({**company, 'status': status})
         token = uuid.uuid4().hex
-        job = {'rows': rows, 'template': str(template), 'finished': str(finished),
+        job = {'rows': rows, 'list': str(source), 'template': str(template), 'finished': str(finished),
                'subject': lines[0].strip(), 'body': '\n'.join(lines[2:]).strip(),
                'hash': hashlib.sha256(template.read_bytes()).hexdigest()}
         atomic(state_dir / (token + '.json'), job)
@@ -320,6 +370,8 @@ def locked(req, folder, state_dir):
     if not re.fullmatch('[a-f0-9]{32}', token):
         raise ValueError('Ungültiger Auftrag.')
     job = json.loads((state_dir / (token + '.json')).read_text(encoding='utf-8'))
+    if Path(job['finished']).suffix.lower() != '.json':
+        raise ValueError('Bitte JSON-Dateien auswählen und die Vorschau neu laden.')
     company = next(c for c in job['rows'] if c['key'] == req['key'] and c['status'] == 'Bereit')
     k = company['key']
     pdf = state_dir / (token + '-' + hashlib.sha256(k.encode()).hexdigest()[:12] + '.pdf')
@@ -350,32 +402,14 @@ def locked(req, folder, state_dir):
             raise ValueError('Reservierung fehlt.')
         journal[k] = {**journal[k], 'status': 'saved', 'drafts': req.get('drafts', [])}
         atomic(journal_path, journal)
-        # Keep the original format; spreadsheets are not silently rewritten.
         finished = Path(job['finished'])
-        if finished.suffix.lower() in ('.xls', '.xlsx', '.ods'):
-            return {'warning': 'Fertig-Liste ist eine Tabelle: Erfolg im journal.json gespeichert; bitte Liste manuell ergänzen.'}
-        old = textfile(finished)
-        if k not in {c['key'] for c in companies(finished)}:
-            backup = finished.with_name(finished.name + '.bak')
-            if not backup.exists():
-                backup.write_bytes(finished.read_bytes())
-            values = [company['name'], company['address'], ' / '.join(company['emails'])]
-            if old.lstrip().startswith('|'):
-                extra = '| ' + ' | '.join(v.replace('|', '\\|').replace('\n', ' ') for v in values) + ' |\n'
-            else:
-                dialect = csv.Sniffer().sniff(old[:8192], delimiters=';,\t')
-                headers = next(csv.reader(io.StringIO(old), dialect))
-                mapping = {'firmenname': values[0], 'firma': values[0], 'name': values[0],
-                           'company': values[0], 'company name': values[0], 'postal address': values[1],
-                           'email address': values[2], 'e-mail address': values[2],
-                           'adresse': values[1], 'anschrift': values[1], 'address': values[1],
-                           'e-mail': values[2], 'email': values[2], 'e-mail-adresse': values[2]}
-                out = io.StringIO()
-                csv.writer(out, dialect).writerow([mapping.get(key(clean(h)), '') for h in headers])
-                extra = out.getvalue()
-            temp = finished.with_name(finished.name + '.tmp')
-            temp.write_text(old.rstrip('\r\n') + '\n' + extra, encoding='utf-8-sig')
-            os.replace(temp, finished)
+        rows = companies(finished)
+        import dedupe
+        if not any(dedupe.same(company, row) for row in rows):
+            save_companies(finished, [*rows, company])
+        if job.get('list'):
+            source = inside(folder, Path(job['list']).name, ('.json',))
+            remove_finished(source, finished, journal)
         return {}
     raise ValueError('Unbekannte Aktion.')
 

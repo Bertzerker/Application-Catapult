@@ -15,7 +15,7 @@ class SearchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'English.csv'
             path.write_text('Company Name,Postal Address,Email Address\nExample,"10 Test Street, London SW1A 1AA",jobs@example.org\n', encoding='utf-8')
-            row = host.companies(path)[0]
+            row = host.companies_from_table(path)[0]
             self.assertEqual(row['name'], 'Example')
             self.assertEqual(row['street'], '10 Test Street')
             self.assertEqual(row['city'], 'London SW1A 1AA')
@@ -29,10 +29,10 @@ class SearchTests(unittest.TestCase):
             (state / ('search-' + token + '.json')).write_text(json.dumps(result), encoding='utf-8')
             req = {'action': 'appendSearch', 'folder': temp, 'token': token, 'selected': ['example']}
             self.assertEqual(host.dispatch(req)['added'], 1)
-            first = (folder / 'ApplicationList.MD').read_bytes()
+            first = (folder / 'ApplicationList.json').read_bytes()
             self.assertEqual(host.dispatch(req)['added'], 0)
-            self.assertEqual((folder / 'ApplicationList.MD').read_bytes(), first)
-            self.assertEqual(len(host.companies(folder / 'ApplicationList.MD')), 1)
+            self.assertEqual((folder / 'ApplicationList.json').read_bytes(), first)
+            self.assertEqual(len(host.companies(folder / 'ApplicationList.json')), 1)
 
     def test_no_grounding_rejected(self):
         with patch.object(gemini, 'api', return_value={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '| Firmenname | Adresse | E-Mail |'}]}}]}):

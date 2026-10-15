@@ -3,6 +3,8 @@ const $ = id => document.getElementById(id);
 const send = message => browser.runtime.sendMessage(message);
 const native = request => send({type: 'native', request});
 let job = null, running = false;
+let previewRows = [], previewConfig = null;
+let exportingFinished = false;
 let mailSource = '', mailLoad = 0;
 let originalMail = '', savingMail = false;
 function updateMailSave() {
@@ -49,12 +51,12 @@ async function loadIdentities() {
 async function loadFiles(saved = {}) {
   invalidate();
   const result = await native({action: 'files', folder: $('folder').value});
-  const patterns = {list: /\.(txt|md|csv|xls|xlsx|ods)$/i, finished: /\.(txt|md|csv)$/i, template: /\.(doc|docx|odt)$/i, mail: /\.(txt|md)$/i};
-  const defaults = {list: 'ApplicationList.txt', finished: 'ApplicationFinished.txt', template: 'ApplicationLetter.odt', mail: 'ApplicationMail.txt'};
+  const patterns = {list: /\.json$/i, finished: /\.json$/i, template: /\.(doc|docx|odt)$/i, mail: /\.(txt|md)$/i};
+  const defaults = {list: 'ApplicationList.json', finished: 'ApplicationFinished.json', template: 'ApplicationLetter.odt', mail: 'ApplicationMail.txt'};
   for (const id of Object.keys(patterns)) {
     $(id).replaceChildren(...result.files.filter(f => patterns[id].test(f)).map(f => new Option(f, f)));
-    const previous = saved[id];
-    const choice = result.files.includes(previous) ? previous : result.files.find(f =>
+    const previous = ['list', 'finished'].includes(id) ? saved[id]?.replace(/\.[^.]+$/, '.json') : saved[id];
+    const choice = result.files.includes(previous) && patterns[id].test(previous) ? previous : result.files.find(f =>
       f.toLowerCase().replace(/^applications/, 'application') === defaults[id].replace(/\.txt$/, '.md').toLowerCase()) || defaults[id];
     if ([...$(id).options].some(o => o.value === choice)) $(id).value = choice;
   }
@@ -82,17 +84,21 @@ $('preview').onclick = guard(async () => {
   if (mailSource !== JSON.stringify([cfg.folder, cfg.mail])) await loadMail();
   job = await native({...cfg, action: 'preview', mailText: $('mailText').value});
   await browser.storage.local.set({config: cfg});
-  $('rows').replaceChildren(...job.rows.map(r => {
+  previewRows = job.rows; previewConfig = cfg;
+  renderPreview();
+  $('subject').textContent = job.subject; $('body').textContent = job.body;
+  updateStart();
+});
+function renderPreview() {
+  $('rows').replaceChildren(...previewRows.map(r => {
     const tr = document.createElement('tr');
     for (const value of [r.name, r.address, r.emails.join('; '), t(r.status)]) {
       const td = document.createElement('td'); td.textContent = value; tr.append(td);
     } return tr;
   }));
-  const ready = job.rows.filter(r => r.status === 'Bereit').length;
-  $('summary').textContent = `${ready} ${t('Firmen bereit')} · ${job.rows.length - ready} ${t('werden übersprungen')}`;
-  $('subject').textContent = job.subject; $('body').textContent = job.body;
-  updateStart();
-});
+  const ready = previewRows.filter(r => r.status === 'Bereit').length;
+  $('summary').textContent = `${ready} ${t('Firmen bereit')} · ${previewRows.length - ready} ${t('werden übersprungen')}`;
+}
 $('start').onclick = guard(async () => {
   $('start').disabled = true;
   await send({type: 'start', config: config(), job, identityId: $('identity').value});
@@ -100,11 +106,26 @@ $('start').onclick = guard(async () => {
   await refresh();
 });
 $('cancel').onclick = guard(() => send({type: 'cancel'}));
+$('exportFinished').onclick = guard(async () => {
+  if (exportingFinished || running) return;
+  exportingFinished = true; $('exportFinished').disabled = true;
+  $('exportStatus').textContent = t('Excel-Export läuft…');
+  try {
+    const result = await native({action: 'exportFinished', folder: $('folder').value, finished: $('finished').value});
+    $('exportStatus').textContent = `${t('Excel-Datei gespeichert:')} ${result.path} (${result.count})`;
+  } catch (error) {$('exportStatus').textContent = t('Excel-Export fehlgeschlagen.'); throw error;}
+  finally {exportingFinished = false; $('exportFinished').disabled = running;}
+});
 async function refresh() {
   const s = await send({type: 'status'}); running = s.running;
+  if (previewConfig?.folder === s.folder && previewConfig?.list === s.list && s.processedKeys?.length) {
+    const remaining = previewRows.filter(row => !s.processedKeys.includes(row.key));
+    if (remaining.length !== previewRows.length) {previewRows = remaining; renderPreview();}
+  }
   for (const id of ['folder','load','list','finished','template','mail','identity','reloadIdentities','preview']) $(id).disabled = running;
   $('mailText').disabled = running || mailSource !== JSON.stringify([$('folder').value, $('mail').value]);
   updateMailSave();
+  $('exportFinished').disabled = running || exportingFinished || !$('finished').value;
   $('cancel').disabled = !running;
   updateStart();
   $('progress').textContent = `${s.completed} / ${s.total} ${t('Entwürfe gespeichert')}${s.running ? ' · ' + (s.current || t('Startet…')) : s.cancelled ? ' · ' + t('Gestoppt') : ''}`;

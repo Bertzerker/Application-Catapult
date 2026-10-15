@@ -2,6 +2,14 @@
 const Lang = (() => {
   let language = 'de';
   const en = {
+    'Als Excel exportieren': 'Export to Excel',
+    'Excel-Export läuft…': 'Exporting to Excel…',
+    'Excel-Datei gespeichert:': 'Excel file saved:',
+    'Excel-Export fehlgeschlagen.': 'Excel export failed.',
+    'Bitte eine JSON-Firmenliste auswählen.': 'Please select a JSON company list.',
+    'Firmenlisten müssen JSON-Dateien sein. Bitte die JSON-Datei auswählen und die Vorschau neu laden.': 'Company lists must be JSON files. Select the JSON file and reload the preview.',
+    'Bitte JSON-Dateien auswählen und die Vorschau neu laden.': 'Select JSON files and reload the preview.',
+    'Firmenliste: JSON-Array mit Firmen erforderlich.': 'Company list: a JSON array of companies is required.', 
     'Betreff und Anschreiben bearbeiten': 'Edit subject and email body',
     'Betreff und Anschreiben speichern': 'Save subject and email body',
     'Betreff und Anschreiben gespeichert.': 'Subject and email body saved.',
@@ -32,7 +40,7 @@ const Lang = (() => {
     'OpenAI-Modell': 'OpenAI model', 'Gemini prüfen': 'Check Gemini', 'OpenAI prüfen': 'Check OpenAI',
     'OpenAI-Verbindung funktioniert.': 'OpenAI connection successful.',
     'Mindestens eine KI auswählen.': 'Select at least one AI provider.',
-    'Dubletten in ApplicationList.MD bereinigen': 'Remove duplicates from ApplicationList.MD',
+    'Dubletten in ApplicationList.json bereinigen': 'Remove duplicates from ApplicationList.json',
     'Dubletten zusammengeführt.': 'duplicates merged.', 'Dubletten entfernt.': 'duplicates removed.',
     'Die Suche übermittelt Ort, Umkreis und Beruf an die ausgewählten Anbieter. API- und Suchkosten können anfallen. Prüfe die Ergebnisse anhand der Quellen.': 'Search sends location, radius and role to the selected providers. API and search charges may apply. Check results against their sources.',
     'Aus deiner Firmenliste werden persönliche Bewerbungs-PDFs und E-Mail-Entwürfe.': 'Turn your company list into personalized application PDFs and email drafts.',

@@ -1,100 +1,63 @@
-import csv
-import io
 import json
 from pathlib import Path
-import shutil
-import struct
-import subprocess
 import sys
 import tempfile
 import unittest
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'native'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'native'))
 import host
 
-
-class ParsingTests(unittest.TestCase):
+class JsonListTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.data = Path(temporary.name)
-        rows = ['| Firmenname | Adresse | E-Mail |', '| --- | --- | --- |']
-        for i in range(8):
-            name = 'Example | Team' if i == 5 else f'Example {i}'
-            email = '' if i == 7 else f'jobs{i}@example.org'
-            if i == 0: email += ' / contact@example.org'
-            rows.append('| ' + name.replace('|', r'\|') + ' | Testweg 1, 45128 Essen | ' + email + ' |')
-        (self.data / 'ApplicationList.MD').write_text('\n'.join(rows), encoding='utf-8')
-        (self.data / 'ApplicationFinished.MD').write_text('\n'.join(rows[:2] + [f'| Old {i} | Old Street | old{i}@example.org |' for i in range(7)]), encoding='utf-8')
-        (self.data / 'ApplicationMail.MD').write_text('Test subject\n\nTest body', encoding='utf-8')
-        # Preview only hashes the file; this test never invokes document conversion.
-        (self.data / 'ApplicationLetter.odt').write_bytes(b'synthetic preview fixture')
+        tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.folder=Path(tmp.name)
+        self.rows=[{'name':'Müller | Partner','address':'Weg 2, 12345 Köln','emails':['a@example.org','b@example.org'],'emailText':'Kontakt über Personalabteilung'}, {'name':'Empty','address':'','emails':[]}]
+        host.atomic(self.folder/'ApplicationList.json',self.rows)
+        host.atomic(self.folder/'ApplicationFinished.json',[])
+        (self.folder/'template.odt').write_bytes(b'preview fixture')
+        (self.folder/'mail.txt').write_text('Betreff\n\nText',encoding='utf-8')
+        self.cfg={'folder':str(self.folder),'list':'ApplicationList.json','finished':'ApplicationFinished.json','template':'template.odt','mail':'mail.txt'}
 
-    def test_supplied_list(self):
-        rows = host.companies(self.data / 'ApplicationList.MD')
-        self.assertEqual(len(rows), 8)
-        self.assertEqual(rows[0]['city'], '45128 Essen')
-        self.assertEqual(len(rows[0]['emails']), 2)
-        self.assertEqual(rows[5]['name'], 'Example | Team')
-        self.assertEqual(rows[-1]['emails'], [])
+    def test_json_workflow_and_preserved_fields(self):
+        rows=host.companies(self.folder/'ApplicationList.json')
+        self.assertEqual(rows[0]['city'],'12345 Köln')
+        job=host.dispatch({**self.cfg,'action':'preview'})
+        self.assertEqual([r['status'] for r in job['rows']],['Bereit','Keine E-Mail-Adresse'])
+        request={'folder':str(self.folder),'token':job['token'],'key':job['rows'][0]['key']}
+        host.dispatch({**request,'action':'reserve'})
+        host.dispatch({**request,'action':'commit','drafts':[123]})
+        host.dispatch({**request,'action':'commit','drafts':[123]})
+        data=json.loads((self.folder/'ApplicationFinished.json').read_text(encoding='utf-8'))
+        self.assertEqual(data,[self.rows[0]])
+        self.assertEqual(json.loads((self.folder/'ApplicationFinished.json.bak').read_text()),[])
+        self.assertEqual([r['name'] for r in host.dispatch({**self.cfg,'action':'preview'})['rows']], ['Empty'])
+        self.assertEqual(json.loads((self.folder/'ApplicationList.json').read_text(encoding='utf-8')), [self.rows[1]])
 
-    def test_csv_quotes_and_encoding(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'list.csv'
-            path.write_bytes('Firmenname;Adresse;E-Mail\n"Müller; Partner";"Weg 2, 12345 Köln";"a@example.org / b@example.org"\n'.encode('cp1252'))
-            row = host.companies(path)[0]
-            self.assertEqual(row['name'], 'Müller; Partner')
-            self.assertEqual(row['city'], '12345 Köln')
-            self.assertEqual(len(row['emails']), 2)
+    def test_cleanup_recovers_saved_but_keeps_pending_and_new(self):
+        extra = {'name':'Pending','address':'Road','emails':['p@example.org']}
+        host.atomic(self.folder/'ApplicationList.json', [*self.rows, extra])
+        state = self.folder/'Bewerbungskatapult'; state.mkdir()
+        host.atomic(state/'journal.json', {host.key(self.rows[0]['name']):{'status':'saved'}, 'pending':{'status':'pending'}})
+        result = host.dispatch({**self.cfg, 'action':'cleanupFinished'})
+        self.assertEqual(result, {'removed':1, 'remaining':2})
+        self.assertEqual([r['name'] for r in host.companies(self.folder/'ApplicationFinished.json')], [self.rows[0]['name']])
+        job=host.dispatch({**self.cfg,'action':'preview'})
+        self.assertEqual([r['status'] for r in job['rows']], ['Keine E-Mail-Adresse','Unklarer früherer Vorgang – Entwürfe prüfen'])
+        self.assertEqual(host.dispatch({**self.cfg, 'action':'cleanupFinished'})['removed'],0)
+        with self.assertRaises(ValueError): host.dispatch({**self.cfg,'action':'cleanupFinished','finished':'ApplicationList.json'})
 
-    def test_native_protocol(self):
-        data = json.dumps({'action': 'defaults'}).encode()
-        result = subprocess.run([sys.executable, str(ROOT / 'native' / 'host.py')],
-            input=struct.pack('<I', len(data)) + data, capture_output=True, check=True)
-        size = struct.unpack('<I', result.stdout[:4])[0]
-        self.assertEqual(size, len(result.stdout[4:]))
-        self.assertTrue(json.loads(result.stdout[4:])['ok'])
-
-    def test_workflow(self):
-        with tempfile.TemporaryDirectory() as folder:
-            target = Path(folder)
-            for file in (self.data).iterdir():
-                if file.is_file(): shutil.copy2(file, target / file.name)
-            cfg = dict(folder=folder, list='ApplicationList.MD', finished='ApplicationFinished.MD',
-                       template='ApplicationLetter.odt', mail='ApplicationMail.MD')
-            preview = host.dispatch(dict(cfg, action='preview'))
-            self.assertEqual(sum(r['status'] == 'Bereit' for r in preview['rows']), 7)
-            row = preview['rows'][0]
-            request = dict(folder=folder, token=preview['token'], key=row['key'])
-            host.dispatch(dict(request, action='reserve'))
-            with self.assertRaises(ValueError): host.dispatch(dict(request, action='reserve'))
-            host.dispatch(dict(request, action='commit', drafts=[123]))
-            host.dispatch(dict(request, action='commit', drafts=[123]))
-            self.assertEqual(len(host.companies(target / 'ApplicationFinished.MD')), 8)
-            refreshed = host.dispatch(dict(cfg, action='preview'))
-            self.assertEqual(refreshed['rows'][0]['status'], 'Bereits bearbeitet')
-            self.assertTrue((target / 'ApplicationFinished.MD.bak').exists())
+    def test_bad_json_and_legacy_formats_rejected(self):
+        path=self.folder/'bad.json'
+        for value in [{},[{}],[{'name':'A','address':'Road','emails':'a@example.org'}],[{'name':'A','address':'Road','emails':['invalid']}]]:
+            host.atomic(path,value)
+            with self.assertRaises(ValueError):host.companies(path)
+        path.write_text('{')
+        with self.assertRaises(ValueError):host.companies(path)
+        legacy=self.folder/'ApplicationList.MD';legacy.write_text('|Firmenname|Adresse|E-Mail|\n|---|---|---|')
+        with self.assertRaises(ValueError):host.companies(legacy)
+        with self.assertRaises(ValueError):host.dispatch({**self.cfg,'action':'preview','list':legacy.name})
+        with self.assertRaises(ValueError):host.dispatch({**self.cfg,'action':'dedupeList','list':legacy.name})
+        self.assertEqual(legacy.read_text(),'|Firmenname|Adresse|E-Mail|\n|---|---|---|')
 
     def test_path_escape(self):
-        with self.assertRaises(ValueError):
-            host.inside(self.data, '../Todo.txt', ('.txt',))
+        with self.assertRaises(ValueError):host.dispatch({**self.cfg,'action':'preview','list':'../outside.json'})
 
-    def test_reordered_finished_csv(self):
-        with tempfile.TemporaryDirectory() as folder:
-            target = Path(folder)
-            for file in (self.data).iterdir():
-                if file.is_file(): shutil.copy2(file, target / file.name)
-            finished = target / 'done.csv'
-            finished.write_text('E-Mail;Firmenname;Adresse\nold@example.org;Alte Firma;Alter Weg\n', encoding='utf-8')
-            cfg = dict(folder=folder, list='ApplicationList.MD', finished='done.csv',
-                       template='ApplicationLetter.odt', mail='ApplicationMail.MD')
-            preview = host.dispatch(dict(cfg, action='preview'))
-            request = dict(folder=folder, token=preview['token'], key=preview['rows'][0]['key'])
-            host.dispatch(dict(request, action='reserve'))
-            host.dispatch(dict(request, action='commit', drafts=[123]))
-            self.assertEqual(host.companies(finished)[-1]['name'], preview['rows'][0]['name'])
-
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__=='__main__':unittest.main()

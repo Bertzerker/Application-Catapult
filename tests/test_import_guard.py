@@ -8,7 +8,7 @@ import host
 
 HEADER = '| Firmenname | Adresse | E-Mail |\n| --- | --- | --- |\n'
 def table(path, names):
-    path.write_text(HEADER + ''.join('| '+n+' | Road 1 | jobs@example.org |\n' for n in names), encoding='utf-8')
+    path.write_text(json.dumps([{'name':n,'address':'Road 1','emails':['jobs@example.org']} for n in names]),encoding='utf-8')
 
 class ImportGuardTests(unittest.TestCase):
     def test_save_mail_backup_validation_and_conflict(self):
@@ -32,8 +32,8 @@ class ImportGuardTests(unittest.TestCase):
     def test_stale_results_finished_existing_journal_and_repeat(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory); state=folder/'Bewerbungskatapult'; state.mkdir()
-            target=folder/'ApplicationsList.md'; table(target,['Existing'])
-            table(folder/'ApplicationsFinished.md',['Done'])
+            target=folder/'ApplicationsList.json'; table(target,['Existing'])
+            table(folder/'ApplicationsFinished.json',['Done'])
             (state/'journal.json').write_text(json.dumps({'saved':{'name':'Saved','status':'saved'},'pending':{'name':'Pending','status':'pending'}}))
             token='a'*32
             rows=[{'name':n,'key':host.key(n),'address':'Road 1','emails':['new@example.org']} for n in ['Existing','Done','Saved','Pending','New']]
@@ -46,22 +46,22 @@ class ImportGuardTests(unittest.TestCase):
             original=target.read_bytes()
             self.assertEqual(host.dispatch(request)['added'],0)
             self.assertEqual(original,target.read_bytes())
-            self.assertFalse((folder/'ApplicationList.MD').exists())
+            self.assertFalse((folder/'ApplicationList.json').exists())
 
     def test_selected_destination_and_edited_mail(self):
         with tempfile.TemporaryDirectory() as directory:
-            folder=Path(directory); table(folder/'custom.md',['Ready']); table(folder/'done.md',[])
+            folder=Path(directory); table(folder/'custom.json',['Ready']); table(folder/'done.json',[])
             (folder/'template.odt').write_bytes(b'test')
             (folder/'mail.txt').write_text('Original\n\nOriginal body')
-            cfg={'folder':directory,'list':'custom.md','finished':'done.md','template':'template.odt','mail':'mail.txt'}
+            cfg={'folder':directory,'list':'custom.json','finished':'done.json','template':'template.odt','mail':'mail.txt'}
             self.assertEqual(host.dispatch({**cfg,'action':'readMail'})['text'],'Original\n\nOriginal body')
             job=host.dispatch({**cfg,'action':'preview','mailText':'Edited\n\nEdited body'})
             self.assertEqual((job['subject'],job['body']),('Edited','Edited body'))
             self.assertEqual((folder/'mail.txt').read_text(),'Original\n\nOriginal body')
             with self.assertRaises(ValueError): host.dispatch({**cfg,'action':'preview','mailText':'No blank line'})
             token='b'*32
-            (folder/'Bewerbungskatapult'/('search-'+token+'.json')).write_text(json.dumps({'list':'custom.md','finished':'done.md','rows':[{'name':'Later','key':'later','address':'Road','emails':['a@example.org']}]}))
-            table(folder/'done.md',['Later'])
+            (folder/'Bewerbungskatapult'/('search-'+token+'.json')).write_text(json.dumps({'list':'custom.json','finished':'done.json','rows':[{'name':'Later','key':'later','address':'Road','emails':['a@example.org']}]}))
+            table(folder/'done.json',['Later'])
             self.assertEqual(host.dispatch({'action':'appendSearch','folder':directory,'token':token,'selected':['later']})['added'],0)
 
 if __name__=='__main__': unittest.main()

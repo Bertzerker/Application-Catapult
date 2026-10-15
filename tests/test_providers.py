@@ -44,8 +44,8 @@ class ProviderTests(unittest.TestCase):
 
     def test_existing_file_cleanup_and_backup(self):
         with tempfile.TemporaryDirectory() as directory:
-            folder = Path(directory); path = folder / 'ApplicationList.MD'
-            original = '| Firmenname | Adresse | E-Mail |\n| --- | --- | --- |\n| Example GmbH | Street 1 | a@example.org |\n| EXAMPLE GmbH. | Street 1 | b@example.org |\n'
+            folder = Path(directory); path = folder / 'ApplicationList.json'
+            original = '[{"name": "Example GmbH", "address": "Street 1", "emails": ["a@example.org"]}, {"name": "EXAMPLE GmbH.", "address": "Street 1", "emails": ["b@example.org"]}]'
             path.write_text(original, encoding='utf-8')
             result = host.dispatch({'action': 'dedupeList', 'folder': directory})
             self.assertEqual(result['removed'], 1)
